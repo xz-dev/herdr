@@ -578,6 +578,10 @@ impl ClientShellState {
                     &mut composed,
                 );
                 ratatui::widgets::Widget::render(block, geometry.outer, &mut composed);
+                crate::protocol::render_ansi::blank_wide_cells_left_of(
+                    &mut composed,
+                    geometry.outer,
+                );
                 frame.replace_from_ratatui_buffer_preserving_effects(&composed, None);
                 blit_pane_surface(&mut frame, &popup.frame, geometry.inner);
                 self.hits.popup = Some(PaneHit {

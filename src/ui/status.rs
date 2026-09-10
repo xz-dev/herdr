@@ -67,6 +67,7 @@ pub(crate) fn render_copy_feedback_buffer(
         .style(Style::default().bg(palette.panel_bg));
     let inner = block.inner(feedback_area);
     block.render(feedback_area, buffer);
+    crate::protocol::render_ansi::blank_wide_cells_left_of(buffer, feedback_area);
 
     if inner.height == 0 {
         return feedback_area;

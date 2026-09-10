@@ -50,6 +50,7 @@ pub(super) fn render_lifecycle_banner(
         &text,
         Style::default().fg(color).bg(palette.surface0),
     );
+    crate::protocol::render_ansi::blank_wide_cells_left_of(buffer, rect);
     rect
 }
 

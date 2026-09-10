@@ -61,6 +61,7 @@ pub(super) fn render_mobile_notice_banner(
             Style::default().fg(palette.overlay0).bg(background),
         );
     }
+    crate::protocol::render_ansi::blank_wide_cells_left_of(buffer, rect);
     rect
 }
 
@@ -174,6 +175,7 @@ pub(super) fn render_notification_card(
             buffer,
         );
     }
+    crate::protocol::render_ansi::blank_wide_cells_left_of(buffer, rect);
     rect
 }
 
