@@ -31,6 +31,9 @@ use std::io::Write;
 
 use unicode_width::UnicodeWidthStr;
 
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+
 use crate::protocol::{
     underline_style_from_modifier, CellData, CursorState, FrameData, PaneSurfacePatchRow,
 };
@@ -726,10 +729,15 @@ fn repeat_ime_anchor_after_sync() -> bool {
 
 /// Writes all cells in the frame (full redraw).
 fn cell_width(cell: &CellData) -> usize {
-    if is_halfwidth_katakana_voiced_grapheme(&cell.symbol) {
+    grapheme_display_width(&cell.symbol)
+}
+
+/// Display width of a grapheme as the blit encoder measures it.
+pub(crate) fn grapheme_display_width(symbol: &str) -> usize {
+    if is_halfwidth_katakana_voiced_grapheme(symbol) {
         return 2;
     }
-    cell.symbol.width()
+    symbol.width()
 }
 
 fn is_halfwidth_katakana_voiced_grapheme(symbol: &str) -> bool {
@@ -743,6 +751,38 @@ fn is_halfwidth_katakana_voiced_grapheme(symbol: &str) -> bool {
     chars.next().is_none()
         && ('\u{ff66}'..='\u{ff9d}').contains(&base)
         && matches!(mark, '\u{ff9e}' | '\u{ff9f}')
+}
+
+/// Blanks wide graphemes whose trailing cell is covered by an overlay rect.
+///
+/// Overlay drawing can overwrite the trailing cell of a wide grapheme from the
+/// underlying content while the leading cell stays just outside the overlay
+/// (`rect.x - 1`). The blit encoder suppresses the cell following any wide
+/// grapheme (`to_skip`), so the stale grapheme would keep rendering across the
+/// overlay edge and swallow the overlay's first cell (e.g. a popup border).
+///
+/// The check is purely geometric: a wide grapheme in the column immediately
+/// left of an overlay rect always straddles that rect's edge, no matter what
+/// symbol the covered trailing cell carries. Trailing-cell symbols are not a
+/// stable contract across server versions (released servers may send `" "`
+/// instead of an empty symbol), so detecting straddles from cell content is
+/// not reliable here. Cells anywhere else are never touched.
+///
+/// Overlay painters call this with the opaque rect they just covered
+/// (including its border).
+pub(crate) fn blank_wide_cells_left_of(buffer: &mut Buffer, rect: Rect) {
+    if rect.x == 0 {
+        return;
+    }
+    let x = rect.x - 1;
+    for y in rect.y..rect.bottom() {
+        if !buffer.area.contains((x, y).into()) {
+            continue;
+        }
+        if grapheme_display_width(buffer[(x, y)].symbol()) >= 2 {
+            buffer[(x, y)].set_symbol(" ");
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1746,6 +1786,82 @@ mod tests {
 
         assert!(!output.contains("\x1b[2J"));
         assert!(output.bytes().filter(|byte| *byte == b'A').count() >= 6);
+    }
+
+    fn buffer_with_symbols(width: u16, symbols: &[&str]) -> Buffer {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, width, 1));
+        for (x, symbol) in symbols.iter().enumerate() {
+            buffer[(x as u16, 0)].set_symbol(symbol);
+        }
+        buffer
+    }
+
+    #[test]
+    fn blank_wide_cells_left_of_blanks_only_edge_straddlers() {
+        let mut buffer = buffer_with_symbols(8, &["x", "门", "", "t", "界", "", "门", " "]);
+        blank_wide_cells_left_of(&mut buffer, Rect::new(2, 0, 3, 1));
+        assert_eq!(buffer[(0, 0)].symbol(), "x");
+        assert_eq!(buffer[(1, 0)].symbol(), " ", "edge straddler must blank");
+        assert_eq!(buffer[(2, 0)].symbol(), "");
+        assert_eq!(buffer[(3, 0)].symbol(), "t");
+        assert_eq!(buffer[(4, 0)].symbol(), "界", "inside rect is not touched");
+        assert_eq!(
+            buffer[(6, 0)].symbol(),
+            "门",
+            "away from edge is not touched"
+        );
+    }
+
+    #[test]
+    fn blank_wide_cells_left_of_ignores_trailing_cell_representation() {
+        // Released servers may send " " instead of an empty symbol in the
+        // trailing cell of a wide grapheme. The geometric check must not
+        // depend on that representation.
+        let mut buffer = buffer_with_symbols(3, &["门", " ", "t"]);
+        blank_wide_cells_left_of(&mut buffer, Rect::new(1, 0, 2, 1));
+        assert_eq!(buffer[(0, 0)].symbol(), " ");
+        assert_eq!(buffer[(1, 0)].symbol(), " ");
+        assert_eq!(buffer[(2, 0)].symbol(), "t");
+    }
+
+    #[test]
+    fn blank_wide_cells_left_of_never_touches_content_without_overlay_edge() {
+        // Anti-regression: wide graphemes away from any overlay edge must
+        // survive unchanged regardless of trailing-cell representation.
+        let mut buffer = buffer_with_symbols(3, &["门", " ", "t"]);
+        let before = buffer.clone();
+        blank_wide_cells_left_of(&mut buffer, Rect::new(0, 0, 3, 1));
+        assert_eq!(buffer, before, "rect at column 0 has no outside column");
+        let mut two_rows = Buffer::empty(Rect::new(0, 0, 2, 2));
+        two_rows[(0, 0)].set_symbol("门");
+        two_rows[(1, 0)].set_symbol("");
+        two_rows[(0, 1)].set_symbol("a");
+        two_rows[(1, 1)].set_symbol("b");
+        let before_two_rows = two_rows.clone();
+        // Rect covers row 1 only; row 0 keeps its wide pair untouched.
+        blank_wide_cells_left_of(&mut two_rows, Rect::new(1, 1, 1, 1));
+        assert_eq!(two_rows, before_two_rows);
+    }
+
+    #[test]
+    fn encoder_emits_overlay_border_after_blanking_edge_straddler() {
+        for trailing in ["", " "] {
+            let prev_buffer = buffer_with_symbols(3, &["门", trailing, " "]);
+            let prev = FrameData::from_ratatui_buffer(&prev_buffer, None);
+            let mut encoder = BlitEncoder::new();
+            let initial = encoder.encode(&prev, false);
+            encoder.commit(prev, initial);
+
+            let mut curr_buffer = buffer_with_symbols(3, &["门", "│", " "]);
+            blank_wide_cells_left_of(&mut curr_buffer, Rect::new(1, 0, 2, 1));
+            let curr = FrameData::from_ratatui_buffer(&curr_buffer, None);
+            let encoded = encoder.encode(&curr, false);
+            let output = String::from_utf8(encoded.bytes).unwrap();
+            assert!(
+                output.contains('│'),
+                "border cell must reach the terminal (trailing {trailing:?}): {output:?}"
+            );
+        }
     }
 
     #[test]

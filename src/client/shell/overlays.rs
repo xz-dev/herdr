@@ -251,6 +251,7 @@ fn panel(
         b[(a.x, y)].set_symbol("│").set_style(border);
         b[(a.right() - 1, y)].set_symbol("│").set_style(border);
     }
+    crate::protocol::render_ansi::blank_wide_cells_left_of(b, a);
     Some(Rect::new(a.x + 1, a.y + 1, a.width - 2, a.height - 2))
 }
 fn popup(a: Rect, w: u16, h: u16) -> Option<Rect> {
