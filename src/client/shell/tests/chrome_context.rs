@@ -378,6 +378,54 @@ fn context_menus_capture_stable_targets_and_route_actions() {
 }
 
 #[test]
+fn context_menu_styles_are_independent_of_underlying_cells() {
+    use ratatui::buffer::Cell;
+    use ratatui::style::Color;
+
+    let palette = ClientShellConfig::from_config(&Config::default()).palette;
+    let menu = ClientContextMenuOverlay {
+        target: ClientContextMenuTarget::Pane {
+            pane_id: "pane_1".into(),
+            workspace_id: "ws_1".into(),
+            source_pane_id: None,
+            has_manual_label: false,
+            right_click_passthrough: false,
+        },
+        x: 4,
+        y: 2,
+        highlighted: 0,
+    };
+    let area = Rect::new(0, 0, 60, 16);
+    let mut clean = Buffer::empty(area);
+    let rendered = render::render_context_menu(&mut clean, &menu, &palette).expect("menu");
+    let mut underlying = Cell::default();
+    underlying.set_symbol("x").set_style(
+        Style::default()
+            .fg(Color::Red)
+            .bg(Color::Blue)
+            .underline_color(Color::Yellow)
+            .add_modifier(Modifier::all()),
+    );
+    let mut styled = Buffer::filled(area, underlying.clone());
+    render::render_context_menu(&mut styled, &menu, &palette).expect("menu over styled pane");
+
+    for y in area.y..area.bottom() {
+        for x in area.x..area.right() {
+            let expected = if rendered.area.contains((x, y).into()) {
+                &clean[(x, y)]
+            } else {
+                &underlying
+            };
+            assert_eq!(&styled[(x, y)], expected, "cell ({x}, {y})");
+        }
+    }
+    let selected = rendered.menu_rows[0].0;
+    assert_eq!(styled[(selected.x, selected.y)].modifier, Modifier::BOLD);
+    let normal = rendered.menu_rows[1].0;
+    assert_eq!(styled[(normal.x, normal.y)].modifier, Modifier::empty());
+}
+
+#[test]
 fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));

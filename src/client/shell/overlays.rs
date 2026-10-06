@@ -227,11 +227,13 @@ fn panel(
     if a.width < 2 || a.height < 2 {
         return None;
     }
-    let background = Style::default().bg(bg).remove_modifier(Modifier::DIM);
-    let border = Style::default().fg(c).bg(bg).remove_modifier(Modifier::DIM);
+    let background = Style::default().bg(bg);
+    let border = Style::default().fg(c).bg(bg);
     for y in a.y..a.bottom() {
         for x in a.x..a.right() {
-            b[(x, y)].set_symbol(" ").set_style(background);
+            let cell = &mut b[(x, y)];
+            cell.reset();
+            cell.set_style(background);
         }
     }
     for x in a.x..a.right() {
