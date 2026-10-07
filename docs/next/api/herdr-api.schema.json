@@ -10506,6 +10506,16 @@
               },
               "type": "array"
             },
+            "terminal_bells": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/TerminalBellFacts"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "version": {
               "type": "string"
             },
@@ -10570,6 +10580,27 @@
             "focused",
             "pane_count",
             "agent_status"
+          ],
+          "type": "object"
+        },
+        "TerminalBellFacts": {
+          "description": "Boot-scoped terminal-bell facts. Absent means no bell has been recorded\nin this runtime boot; old readers that do not know the field decode the\nsnapshot exactly as before.",
+          "properties": {
+            "boot_id": {
+              "type": "string"
+            },
+            "latest_by_tab": {
+              "additionalProperties": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "default": {},
+              "type": "object"
+            }
+          },
+          "required": [
+            "boot_id"
           ],
           "type": "object"
         },

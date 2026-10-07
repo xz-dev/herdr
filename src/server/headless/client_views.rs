@@ -158,6 +158,25 @@ impl HeadlessServer {
             });
             location.reconcile(&topology);
         }
+        // Authoritative topology removal also prunes terminal-bell facts;
+        // reorder and rename keep stable ids and their facts.
+        self.prune_terminal_bells_for_topology();
+        // Reconciliation can commit a fallback tab without explicit navigation.
+        // Only the selected tab of a surface-active client counts as visited.
+        let viewed_tabs: Vec<_> = self
+            .clients
+            .iter()
+            .filter_map(|(&client_id, client)| {
+                if !client.is_active_shell_client() {
+                    return None;
+                }
+                let tab_id = client.shell_location.as_ref()?.focused_tab_id()?;
+                Some((client_id, tab_id.to_owned()))
+            })
+            .collect();
+        for (client_id, tab_id) in viewed_tabs {
+            self.advance_terminal_bells_frontier(client_id, &tab_id);
+        }
     }
 
     pub(super) fn focus_all_shell_clients_on_default_target(&mut self) {
@@ -179,6 +198,11 @@ impl HeadlessServer {
                 location.focus_tab(workspace_id.clone(), tab_id.clone());
             }
         }
+        // Committed public focus acknowledges the target tab for every
+        // surface-active shell connection.
+        for client_id in self.clients.keys().copied().collect::<Vec<_>>() {
+            self.advance_terminal_bells_frontier(client_id, &tab_id);
+        }
         let (lost, gained) =
             self.shell_location_focus_transitions(focus_before, &focused_tabs_before);
         self.app.accept_current_focus_with_api_events();
@@ -197,6 +221,9 @@ impl HeadlessServer {
             return false;
         };
         location.focus_tab(workspace_id, tab_id.to_owned());
+        // Committed focus into a tab acknowledges its already-dispatched bells
+        // for this connection only.
+        self.advance_terminal_bells_frontier(client_id, tab_id);
         true
     }
 
@@ -912,6 +939,10 @@ impl HeadlessServer {
         client_id: u64,
         msg: api::ApiRequestMessage,
     ) -> bool {
+        // Drain already-queued BELs before navigation mutates committed focus
+        // so they are attributed to the previous committed focus. The drain's
+        // changed/render result is preserved in the handler return.
+        let drained_changed = self.drain_all_internal_events_with_forwarding();
         let focus_before = self.shell_focus_target(client_id);
         let focused_tabs_before = self.focused_shell_tabs();
         let method_claims_geometry = Self::shell_endpoint_claims_geometry(&msg.request.method);
@@ -922,7 +953,7 @@ impl HeadlessServer {
         self.set_default_shell_target_from_client(client_id);
         let popup_before = self.app.state.popup_pane.is_some();
         let popup_owner = self.shell_tab_id_for_client(client_id);
-        let changed = self.handle_api_request_with_shutdown_check_inner(msg, false, true);
+        let changed_api = self.handle_api_request_with_shutdown_check_inner(msg, false, true);
         self.focus_shell_client_on_default_target(client_id);
         if !popup_before && self.app.state.popup_pane.is_some() {
             self.popup_owner_tab_id = popup_owner;
@@ -956,6 +987,6 @@ impl HeadlessServer {
                 self.claim_shell_tab_geometry(client_id, false)
                     || self.resize_shell_tab_if_controller(client_id, false)
             };
-        changed | navigation_changed | geometry_changed
+        drained_changed | changed_api | navigation_changed | geometry_changed
     }
 }

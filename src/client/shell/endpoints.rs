@@ -18,6 +18,7 @@ pub(crate) struct ClientShellEndpoint {
     pub(crate) snapshot_generation: Option<u64>,
     pub(crate) agent_recency: HashMap<String, u64>,
     pub(super) agent_presentation: super::endpoint_agent_state::EndpointAgentPresentation,
+    pub(super) terminal_bells: super::endpoint_bells::EndpointTerminalBellsPresentation,
     pub(crate) agent_view_projection: Option<ClientEndpointAgentViewProjection>,
     pending_agent_view_projection: Option<ClientEndpointAgentViewProjection>,
     pub(crate) agent_view_projection_supported: bool,
@@ -81,6 +82,9 @@ impl ClientShellState {
                 agent_presentation: previous
                     .map(|endpoint| endpoint.agent_presentation.clone())
                     .unwrap_or_default(),
+                terminal_bells: previous
+                    .map(|endpoint| endpoint.terminal_bells.clone())
+                    .unwrap_or_default(),
                 agent_view_projection: previous
                     .and_then(|endpoint| endpoint.agent_view_projection.clone()),
                 pending_agent_view_projection: previous
@@ -130,6 +134,7 @@ impl ClientShellState {
             endpoint.methods = None;
             endpoint.agent_recency.clear();
             endpoint.agent_presentation = Default::default();
+            endpoint.terminal_bells = Default::default();
             endpoint.agent_view_projection = None;
             endpoint.pending_agent_view_projection = None;
             endpoint.agent_view_projection_supported = false;
@@ -738,6 +743,7 @@ pub(super) fn local_endpoint() -> ClientShellEndpoint {
         snapshot_generation: None,
         agent_recency: HashMap::new(),
         agent_presentation: Default::default(),
+        terminal_bells: Default::default(),
         agent_view_projection: None,
         pending_agent_view_projection: None,
         agent_view_projection_supported: false,

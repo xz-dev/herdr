@@ -241,6 +241,8 @@ pub(super) struct ShellRenderState<'a> {
     pub(super) tab_scroll: &'a mut usize,
     pub(super) reveal_focused_workspace: &'a mut bool,
     pub(super) reveal_focused_tab: &'a mut bool,
+    pub(super) tab_bell_marker:
+        Option<&'a super::endpoint_bells::EndpointTerminalBellsPresentation>,
     pub(super) sidebar_collapsed: bool,
     pub(super) sidebar_section_split: f32,
     pub(super) tab_drag_insert_index: Option<usize>,
@@ -318,6 +320,7 @@ pub(super) fn render_shell(
             state.tab_scroll,
             state.reveal_focused_tab,
             state.tab_drag_insert_index,
+            state.tab_bell_marker,
             &mut hits,
         );
     }

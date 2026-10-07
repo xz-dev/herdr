@@ -575,6 +575,7 @@ impl HeadlessServer {
                     self.server_config_diagnostic_without_keybindings.clone()
                 };
                 candidate.revision = client.shell_projection_revision;
+                shell_projection_revision = client.shell_projection_revision;
                 if client.shell_snapshot.as_ref() != Some(&candidate)
                     || client.shell_agent_completions.as_ref() != Some(&completions)
                     || client.shell_agent_view != agent_view
@@ -657,10 +658,22 @@ impl HeadlessServer {
                     client.shell_snapshot = Some(candidate);
                     client.shell_agent_completions = Some(completions);
                     client.shell_agent_view = agent_view;
+                    shell_projection_revision = client.shell_projection_revision;
                 }
-                shell_projection_revision = client.shell_projection_revision;
-                if !client.shell_surface_active {
-                    client.clear_deferred_render();
+            }
+            // Metadata-only companion facts must reach the endpoint even when
+            // the shell snapshot is unchanged and even for surface-inactive
+            // connections.
+            if matches!(mode, ClientConnectionMode::ClientShell) {
+                self.publish_terminal_bells_companion(client_id);
+                if !self
+                    .clients
+                    .get(&client_id)
+                    .is_some_and(|client| client.shell_surface_active)
+                {
+                    if let Some(client) = self.clients.get_mut(&client_id) {
+                        client.clear_deferred_render();
+                    }
                     continue;
                 }
             }

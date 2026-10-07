@@ -37,10 +37,13 @@ impl HeadlessServer {
         }
         let surface_active = client.shell_surface_active;
         if let api::schema::Method::ClientShellSurfaceSet(params) = &request.method {
+            // This inline request bypasses the ordinary shell navigation
+            // handler. Attribute queued BELs before changing the surface lease.
+            let drained_changed = self.drain_all_internal_events_with_forwarding();
             let Some((changed, projection_revision)) =
                 self.set_client_shell_surface_active(client_id, params.active)
             else {
-                return false;
+                return drained_changed;
             };
             self.send_to_client(
                 client_id,
@@ -53,7 +56,7 @@ impl HeadlessServer {
                     },
                 ),
             );
-            return changed;
+            return drained_changed | changed;
         }
         if client.shell_endpoint_command_in_flight {
             let message = crate::server::client_commands::error_message(

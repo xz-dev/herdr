@@ -124,6 +124,10 @@ pub(crate) struct ClientWriter {
     pub(crate) control: ClientControlWriter,
     /// Droppable render messages. Capacity is one so slow clients cannot build lag.
     pub(crate) render: ClientRenderWriter,
+    /// Replaceable terminal-bell companion slot. Capacity is one and newer full
+    /// projections replace older pending ones; the writer drains it after the
+    /// reliable control lane and before render/ordered lanes.
+    pub(crate) terminal_bells: ClientTerminalBellsWriter,
 }
 
 impl ClientWriter {
@@ -137,7 +141,8 @@ impl ClientWriter {
         let queue = ClientWriterQueue::new();
         Self {
             control: ClientControlWriter::queue(queue.clone()),
-            render: ClientRenderWriter::queue(queue),
+            render: ClientRenderWriter::queue(queue.clone()),
+            terminal_bells: ClientTerminalBellsWriter::queue(queue),
         }
     }
 
@@ -145,6 +150,7 @@ impl ClientWriter {
     pub(crate) fn test_drain(&self) -> Vec<Vec<u8>> {
         let mut state = self.render.queue.lock_state();
         let mut frames = state.control.drain(..).collect::<Vec<_>>();
+        frames.extend(state.terminal_bells.take());
         frames.extend(state.ordered.drain(..));
         frames.extend(state.render.take());
         frames
@@ -168,11 +174,13 @@ impl ClientWriter {
         let queue = ClientWriterQueue::new();
         let drain = queue.clone();
         let control_writer = ClientControlWriter::queue(queue.clone());
-        let mut render_writer = ClientRenderWriter::queue(queue);
+        let mut render_writer = ClientRenderWriter::queue(queue.clone());
         render_writer.test_render = Some(render.clone());
+        let terminal_bells_writer = ClientTerminalBellsWriter::queue(queue);
         let writer = Self {
             control: control_writer,
             render: render_writer,
+            terminal_bells: terminal_bells_writer,
         };
         std::thread::spawn(move || {
             while let Some(item) = drain.recv() {
@@ -204,6 +212,11 @@ pub(crate) struct ClientRenderWriter {
     test_render: Option<std::sync::mpsc::SyncSender<Vec<u8>>>,
 }
 
+#[derive(Debug)]
+pub(crate) struct ClientTerminalBellsWriter {
+    queue: Arc<ClientWriterQueue>,
+}
+
 macro_rules! writer_handle {
     ($type:ty) => {
         impl Clone for $type {
@@ -225,6 +238,20 @@ macro_rules! writer_handle {
 }
 writer_handle!(ClientControlWriter);
 writer_handle!(ClientRenderWriter);
+
+impl Clone for ClientTerminalBellsWriter {
+    fn clone(&self) -> Self {
+        self.queue.add_sender();
+        Self {
+            queue: self.queue.clone(),
+        }
+    }
+}
+impl Drop for ClientTerminalBellsWriter {
+    fn drop(&mut self) {
+        self.queue.remove_sender();
+    }
+}
 
 impl ClientControlWriter {
     fn queue(queue: Arc<ClientWriterQueue>) -> Self {
@@ -264,6 +291,18 @@ impl ClientRenderWriter {
     }
 }
 
+impl ClientTerminalBellsWriter {
+    fn queue(queue: Arc<ClientWriterQueue>) -> Self {
+        queue.add_sender();
+        Self { queue }
+    }
+
+    /// Replaces any pending companion with this newer full projection.
+    pub(crate) fn try_send(&self, data: Vec<u8>) -> Result<(), TrySendError<Vec<u8>>> {
+        self.queue.replace_terminal_bells(data)
+    }
+}
+
 #[derive(Debug)]
 struct ClientWriterQueue {
     state: Mutex<ClientWriterQueueState>,
@@ -275,6 +314,7 @@ struct ClientWriterQueueState {
     control: VecDeque<Vec<u8>>,
     ordered: VecDeque<Vec<u8>>,
     render: Option<Vec<u8>>,
+    terminal_bells: Option<Vec<u8>>,
     senders: usize,
     writer_alive: bool,
 }
@@ -337,6 +377,16 @@ impl ClientWriterQueue {
         self.ready.notify_all();
     }
 
+    fn replace_terminal_bells(&self, data: Vec<u8>) -> Result<(), TrySendError<Vec<u8>>> {
+        let mut state = self.lock_state();
+        if !state.writer_alive {
+            return Err(TrySendError::Disconnected(data));
+        }
+        state.terminal_bells = Some(data);
+        self.ready.notify_one();
+        Ok(())
+    }
+
     fn send_ordered(&self, data: Vec<u8>) -> Result<(), TrySendError<Vec<u8>>> {
         let mut state = self.lock_state();
         if !state.writer_alive {
@@ -357,6 +407,9 @@ impl ClientWriterQueue {
         let mut state = self.lock_state();
         loop {
             if let Some(data) = state.control.pop_front() {
+                return Some(ClientWriteItem::Control(data));
+            }
+            if let Some(data) = state.terminal_bells.take() {
                 return Some(ClientWriteItem::Control(data));
             }
             if let Some(data) = state.ordered.pop_front() {
@@ -380,6 +433,7 @@ impl ClientWriterQueue {
         let mut state = self.lock_state();
         state.writer_alive = false;
         state.render = None;
+        state.terminal_bells = None;
         state.ordered.clear();
         self.ready.notify_all();
     }
@@ -859,6 +913,7 @@ pub(crate) fn handle_client_handshake(
     let writer = ClientWriter {
         control: ClientControlWriter::queue(writer_queue.clone()),
         render: ClientRenderWriter::queue(writer_queue.clone()),
+        terminal_bells: ClientTerminalBellsWriter::queue(writer_queue.clone()),
     };
 
     // Spawn a writer thread that forwards messages from the channels to the stream.
@@ -1525,6 +1580,7 @@ mod tests {
             ClientWriter {
                 control: ClientControlWriter::queue(queue.clone()),
                 render: ClientRenderWriter::queue(queue.clone()),
+                terminal_bells: ClientTerminalBellsWriter::queue(queue.clone()),
             },
             queue,
         )
@@ -1534,6 +1590,81 @@ mod tests {
         let mut bytes = Vec::new();
         protocol::write_message(&mut bytes, message).expect("frame server message");
         bytes
+    }
+
+    #[test]
+    fn terminal_bells_slot_is_replaceable_and_bounded() {
+        let (writer, queue) = test_queue_writer();
+        let first = frame_server_message(&ServerMessage::EndpointControl {
+            kind: "endpoint.terminal-bells.v1".into(),
+            data: "{\"revision\":1}".into(),
+        });
+        let second = frame_server_message(&ServerMessage::EndpointControl {
+            kind: "endpoint.terminal-bells.v1".into(),
+            data: "{\"revision\":2}".into(),
+        });
+
+        writer
+            .terminal_bells
+            .try_send(first)
+            .expect("first companion fits");
+        // The slot is replaceable, not full-rejecting: the newer full
+        // projection replaces the older pending one.
+        writer
+            .terminal_bells
+            .try_send(second.clone())
+            .expect("newer companion replaces the pending one");
+
+        assert_eq!(queue.recv(), Some(ClientWriteItem::Control(second)));
+        // Exactly one pending companion: the queue drains nothing else for it.
+        queue.close_writer();
+    }
+
+    #[test]
+    fn terminal_bells_companion_follows_control_and_precedes_render() {
+        let (mut client_stream, server_stream, _path) =
+            local_stream_pair("client-writer-bell-order");
+        let (writer, queue) = test_queue_writer();
+        writer
+            .control
+            .send(frame_server_message(&ServerMessage::ReloadSoundConfig))
+            .expect("queue control");
+        writer
+            .terminal_bells
+            .try_send(frame_server_message(&ServerMessage::EndpointControl {
+                kind: "endpoint.terminal-bells.v1".into(),
+                data: "{}".into(),
+            }))
+            .expect("queue companion");
+        writer
+            .render
+            .try_send(frame_server_message(&ServerMessage::WindowTitle {
+                title: Some("render".into()),
+            }))
+            .expect("queue render");
+
+        let (server_event_tx, _server_event_rx) = mpsc::channel(4);
+        let handle = std::thread::spawn(move || {
+            client_writer_loop(server_stream, 21, queue, server_event_tx);
+        });
+
+        match protocol::read_message(&mut client_stream, MAX_FRAME_SIZE).expect("read control") {
+            ServerMessage::ReloadSoundConfig => {}
+            other => panic!("expected reliable control first, got {other:?}"),
+        }
+        match protocol::read_message(&mut client_stream, MAX_FRAME_SIZE).expect("read companion") {
+            ServerMessage::EndpointControl { kind, .. } => {
+                assert_eq!(kind, "endpoint.terminal-bells.v1");
+            }
+            other => panic!("expected terminal-bells companion second, got {other:?}"),
+        }
+        match protocol::read_message(&mut client_stream, MAX_FRAME_SIZE).expect("read render") {
+            ServerMessage::WindowTitle { title } => assert_eq!(title.as_deref(), Some("render")),
+            other => panic!("expected render message last, got {other:?}"),
+        }
+
+        drop(writer);
+        handle.join().expect("writer exits after senders drop");
     }
 
     #[test]

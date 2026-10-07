@@ -17,6 +17,8 @@ A tab is a layout inside a workspace. Use tabs to separate views like `agents`, 
 
 Tabs are addressable from the CLI and socket API.
 
+When any pane in a background tab emits a terminal bell (BEL), the tab label gets a leading `!`. Selecting that tab clears the mark for your client only. Bells in the tab you are viewing, including its other split panes, do not leave a mark. Background tabs in other workspaces retain their marks until visited. Marks are not restored after a server restart, and a newly attached client does not replay earlier bells. Audible bell forwarding is unchanged.
+
 ## Pane
 
 A pane is a real terminal. Herdr renders the terminal output, sends input back to the process, and preserves the pane across client detach.

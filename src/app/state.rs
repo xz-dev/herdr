@@ -826,6 +826,10 @@ pub struct AppState {
     pub agent_panel_sort: AgentPanelSort,
     /// Transient session-wide projection override for the built-in Agents view.
     pub agent_view_override: Option<crate::api::schema::AgentViewSetParams>,
+    /// Boot-scoped terminal-bell facts exposed through the optional public
+    /// `session.snapshot` field. None until the headless runtime records a
+    /// bell; the interactive TUI never sets it.
+    pub terminal_bells: Option<crate::api::schema::TerminalBellFacts>,
     pub sidebar_agents: crate::config::AgentsSidebarConfig,
     pub sidebar_spaces: crate::config::SpacesSidebarConfig,
     pub next_agent_state_change_seq: u64,
@@ -1068,6 +1072,7 @@ impl AppState {
             ),
             agent_panel_sort: AgentPanelSort::Spaces,
             agent_view_override: None,
+            terminal_bells: None,
             sidebar_agents: crate::config::AgentsSidebarConfig::default(),
             sidebar_spaces: crate::config::SpacesSidebarConfig::default(),
             next_agent_state_change_seq: 0,

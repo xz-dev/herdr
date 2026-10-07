@@ -65,6 +65,11 @@ impl HeadlessServer {
 
         if active {
             self.promote_client_to_foreground(client_id);
+            // Endpoint selection (not outer OS focus) acknowledges the
+            // committed tab's already-dispatched bells for this connection.
+            if let Some(tab_id) = self.shell_tab_id_for_client(client_id) {
+                self.advance_terminal_bells_frontier(client_id, &tab_id);
+            }
             // Do not emit/cache a title during a frozen target activation. A committed client
             // explicitly requests the bounded replay after its coherent frame is visible.
             self.sent_window_title = None;

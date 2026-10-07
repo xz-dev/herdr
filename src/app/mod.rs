@@ -531,6 +531,7 @@ impl App {
             headless_size: config.headless_size(),
             agent_panel_sort,
             agent_view_override: None,
+            terminal_bells: None,
             sidebar_agents: config.ui.sidebar.agents.clone(),
             sidebar_spaces: config.ui.sidebar.spaces.clone(),
             next_agent_state_change_seq: 0,

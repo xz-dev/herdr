@@ -2068,6 +2068,24 @@ async fn run_client_loop(
                                 }
                                 continue;
                             }
+                            Ok(endpoint::EndpointControlMessage::TerminalBells(bells)) => {
+                                let repaint = state.shell.as_mut().is_some_and(|shell| {
+                                    shell.receive_endpoint_terminal_bells(
+                                        &endpoint_id,
+                                        Some(generation),
+                                        bells,
+                                    )
+                                });
+                                if repaint {
+                                    let frame = state.shell.as_mut().and_then(|shell| {
+                                        shell.compose(state.reported_size.0, state.reported_size.1)
+                                    });
+                                    if let Some(frame) = frame {
+                                        state.present_frozen_chrome(frame);
+                                    }
+                                }
+                                continue;
+                            }
                             Ok(endpoint::EndpointControlMessage::Ignored) => {
                                 debug!(%kind, "ignoring unknown endpoint control message");
                                 continue;

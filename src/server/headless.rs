@@ -82,6 +82,7 @@ mod notifications;
 mod render;
 mod retained_surface;
 mod surface_interest;
+mod terminal_bells;
 
 // Producers can refill even a bounded channel while it is being drained.
 // Yield to scheduled work and rendering between batches; select! below
@@ -238,6 +239,8 @@ pub struct HeadlessServer {
     shutting_down: bool,
     /// Flag set while exporting live PTYs to a replacement server.
     handoff_in_progress: bool,
+    /// Boot-scoped terminal-bell facts backing the optional companion control.
+    terminal_bells: terminal_bells::TerminalBellsState,
     /// Imported panes get one app-safe resize nudge after the first client attaches.
     #[cfg(unix)]
     pending_handoff_repaint_nudge: bool,
@@ -375,6 +378,7 @@ impl HeadlessServer {
             shutting_down: false,
             host_shutdown_requested: Arc::new(AtomicBool::new(false)),
             handoff_in_progress: false,
+            terminal_bells: Default::default(),
             #[cfg(unix)]
             pending_handoff_repaint_nudge: false,
             should_quit,
@@ -1979,6 +1983,13 @@ impl HeadlessServer {
                 connection.shell_agent_completions = Some(completion_projection);
                 connection.shell_agent_view = agent_view;
                 self.clients.insert(client_id, connection);
+                // Reliable terminal-bells seed precedes the projection pair on
+                // the same control lane. A fresh client baselines current
+                // counts before its first snapshot, and any later replaceable
+                // companion drains after the whole control queue, so the
+                // baseline is always delivered first even while the writer is
+                // paused.
+                self.seed_terminal_bells_for_client(client_id);
                 if self.app.state.popup_pane.is_some() && self.popup_owner_tab_id.is_none() {
                     self.popup_owner_tab_id = self.shell_tab_id_for_client(client_id);
                 }

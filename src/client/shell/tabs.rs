@@ -12,6 +12,7 @@ pub(crate) fn render_tab_bar(
     tab_scroll: &mut usize,
     reveal_focused_tab: &mut bool,
     tab_drag_insert_index: Option<usize>,
+    bell_marker: Option<&super::endpoint_bells::EndpointTerminalBellsPresentation>,
     hits: &mut ShellHitMap,
 ) {
     let palette = &config.palette;
@@ -24,7 +25,7 @@ pub(crate) fn render_tab_bar(
     let desired_widths = tabs
         .iter()
         .map(|tab| {
-            let label = tab_label(tab);
+            let label = tab_label(tab, bell_marker);
             display_width(&label).saturating_add(4).max(MIN_TAB_WIDTH)
         })
         .collect::<Vec<_>>();
@@ -92,7 +93,7 @@ pub(crate) fn render_tab_bar(
     let mut first_visible = None;
     let mut last_visible = None;
     for (index, tab) in tabs.iter().enumerate().skip(*tab_scroll) {
-        let name = tab_label(tab);
+        let name = tab_label(tab, bell_marker);
         let desired = desired_widths[index];
         let remaining = tab_right.saturating_sub(x);
         let width = desired.min(remaining);
@@ -371,11 +372,16 @@ fn max_tab_scroll(widths: &[u16], available: u16) -> usize {
     start
 }
 
-fn tab_label(tab: &ClientShellTab) -> String {
-    if tab.zoomed {
-        format!("{} Z", tab.label)
-    } else {
-        tab.label.clone()
+fn tab_label(
+    tab: &ClientShellTab,
+    bell_marker: Option<&super::endpoint_bells::EndpointTerminalBellsPresentation>,
+) -> String {
+    let bell = !tab.focused && bell_marker.is_some_and(|bells| bells.owes_marker(&tab.tab_id));
+    match (bell, tab.zoomed) {
+        (true, true) => format!("! {} Z", tab.label),
+        (true, false) => format!("! {}", tab.label),
+        (false, true) => format!("{} Z", tab.label),
+        (false, false) => tab.label.clone(),
     }
 }
 

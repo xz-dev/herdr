@@ -31,12 +31,31 @@ pub const AGENT_VIEW_PROJECTION_CAPABILITY: &str = "agent_view_projection";
 pub const AGENT_VIEW_PROJECTION_KIND: &str = "endpoint.agent-view.v1";
 pub const AGENT_COMPLETIONS_CAPABILITY: &str = "agent_completions";
 pub const AGENT_COMPLETIONS_KIND: &str = "endpoint.agent-completions.v1";
+pub const TERMINAL_BELLS_CAPABILITY: &str = "terminal_bells";
+pub const TERMINAL_BELLS_KIND: &str = "endpoint.terminal-bells.v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndpointAgentCompletions {
     pub boot_id: String,
     pub revision: u64,
     pub completions: std::collections::BTreeMap<String, u64>,
+}
+
+/// Optional full-replacement terminal-bell facts for one shell connection.
+///
+/// `latest_by_tab` is the boot-scoped shared dispatch serial per live stable
+/// tab id; `focused_through_by_tab` is this connection's cumulative focus
+/// frontier. A marker is owed exactly when `latest > focused_through`. The
+/// revision is connection-local metadata revision, not the shell snapshot
+/// revision, so acknowledgement never depends on snapshot pairing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointTerminalBells {
+    pub boot_id: String,
+    pub revision: u64,
+    #[serde(default)]
+    pub latest_by_tab: std::collections::BTreeMap<String, u64>,
+    #[serde(default)]
+    pub focused_through_by_tab: std::collections::BTreeMap<String, u64>,
 }
 
 fn default_true() -> bool {
@@ -122,6 +141,13 @@ pub fn agent_completions_message(
     })
 }
 
+pub fn terminal_bells_message(bells: &EndpointTerminalBells) -> serde_json::Result<ServerMessage> {
+    Ok(ServerMessage::EndpointControl {
+        kind: TERMINAL_BELLS_KIND.into(),
+        data: serde_json::to_string(bells)?,
+    })
+}
+
 pub fn agent_view_projection_message(
     boot_id: &str,
     revision: u64,
@@ -174,6 +200,7 @@ impl EndpointServerWelcome {
                 HEALTH_CHECK_CAPABILITY.into(),
                 AGENT_VIEW_PROJECTION_CAPABILITY.into(),
                 AGENT_COMPLETIONS_CAPABILITY.into(),
+                TERMINAL_BELLS_CAPABILITY.into(),
             ],
             error: None,
         }
@@ -385,6 +412,7 @@ mod tests {
                 HEALTH_CHECK_CAPABILITY.to_string(),
                 AGENT_VIEW_PROJECTION_CAPABILITY.to_string(),
                 AGENT_COMPLETIONS_CAPABILITY.to_string(),
+                TERMINAL_BELLS_CAPABILITY.to_string(),
             ]
         );
     }

@@ -10,6 +10,7 @@ pub(crate) enum EndpointControlMessage {
     HealthPong,
     AgentViewProjection(DecodedAgentViewProjection),
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
+    TerminalBells(crate::protocol::endpoint::EndpointTerminalBells),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
     Ignored,
 }
@@ -52,6 +53,11 @@ pub(crate) fn decode_endpoint_control(
                 view,
             },
         ));
+    }
+    if kind == crate::protocol::endpoint::TERMINAL_BELLS_KIND {
+        return Ok(serde_json::from_str(data)
+            .map(EndpointControlMessage::TerminalBells)
+            .unwrap_or(EndpointControlMessage::Ignored));
     }
     if kind == crate::protocol::endpoint::ENDPOINT_SNAPSHOT_KIND {
         let snapshot = serde_json::from_str(data)
@@ -160,6 +166,41 @@ mod tests {
                 "not json"
             )
             .unwrap(),
+            EndpointControlMessage::Ignored
+        ));
+    }
+
+    #[test]
+    fn terminal_bells_optional_control_round_trips_and_malformed_is_ignored() {
+        let bells = crate::protocol::endpoint::EndpointTerminalBells {
+            boot_id: "boot".into(),
+            revision: 2,
+            latest_by_tab: [("ws:t1".into(), 3)].into_iter().collect(),
+            focused_through_by_tab: [("ws:t1".into(), 1)].into_iter().collect(),
+        };
+        let crate::protocol::ServerMessage::EndpointControl { kind, data } =
+            crate::protocol::endpoint::terminal_bells_message(&bells).unwrap()
+        else {
+            panic!("expected optional control");
+        };
+        let EndpointControlMessage::TerminalBells(decoded) =
+            decode_endpoint_control(&kind, &data).unwrap()
+        else {
+            panic!("expected terminal-bells projection");
+        };
+        assert_eq!(decoded, bells);
+        // Missing maps default to empty; an old producer without them still decodes.
+        let EndpointControlMessage::TerminalBells(decoded) = decode_endpoint_control(
+            crate::protocol::endpoint::TERMINAL_BELLS_KIND,
+            r#"{"boot_id":"boot","revision":0}"#,
+        )
+        .unwrap() else {
+            panic!("expected terminal-bells projection");
+        };
+        assert!(decoded.latest_by_tab.is_empty() && decoded.focused_through_by_tab.is_empty());
+        assert!(matches!(
+            decode_endpoint_control(crate::protocol::endpoint::TERMINAL_BELLS_KIND, "invalid")
+                .unwrap(),
             EndpointControlMessage::Ignored
         ));
     }

@@ -12,6 +12,8 @@ mod surface_delta_tests;
 mod surface_interest_tests;
 #[path = "surface_scroll.rs"]
 mod surface_scroll_tests;
+#[path = "terminal_bells.rs"]
+mod terminal_bells_tests;
 
 fn client_shell_projection(
     receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
@@ -19,7 +21,7 @@ fn client_shell_projection(
     Box<protocol::ClientShellSnapshot>,
     protocol::endpoint::EndpointAgentCompletions,
 ) {
-    let read_control = |expected| {
+    let read_control = |expected| loop {
         let ServerMessage::EndpointControl { kind, data } = read_server_message(
             receiver
                 .recv_timeout(Duration::from_secs(1))
@@ -27,8 +29,13 @@ fn client_shell_projection(
         ) else {
             panic!("expected endpoint control {expected}");
         };
+        // The optional terminal-bells companion shares the control lane; skip
+        // it while looking for the projection pair.
+        if kind == crate::protocol::endpoint::TERMINAL_BELLS_KIND {
+            continue;
+        }
         assert_eq!(kind, expected);
-        data
+        break data;
     };
     let completions: protocol::endpoint::EndpointAgentCompletions =
         serde_json::from_str(&read_control(protocol::endpoint::AGENT_COMPLETIONS_KIND)).unwrap();
@@ -129,6 +136,7 @@ fn test_headless_server_with_event_hub(event_hub: api::EventHub) -> HeadlessServ
         shutting_down: false,
         host_shutdown_requested: Arc::new(AtomicBool::new(false)),
         handoff_in_progress: false,
+        terminal_bells: Default::default(),
         #[cfg(unix)]
         pending_handoff_repaint_nudge: false,
         should_quit,

@@ -323,11 +323,23 @@ impl HeadlessServer {
         });
         match &ev {
             AppEvent::TerminalBell { pane_id, count } => {
+                if *count > 0 {
+                    // Bell bookkeeping uses server dispatch order; the audible
+                    // forwarding below is unchanged.
+                    self.record_terminal_bell(*pane_id);
+                }
                 if !self.send_to_foreground_client(ServerMessage::TerminalBell { count: *count }) {
                     debug!(
                         pane = pane_id.raw(),
                         count, "dropped terminal bell without a foreground client"
                     );
+                }
+                if *count > 0 {
+                    // Hidden output does not schedule a pane render. Publish
+                    // bell metadata at dispatch, independently of that path.
+                    for client_id in self.clients.keys().copied().collect::<Vec<_>>() {
+                        self.publish_terminal_bells_companion(client_id);
+                    }
                 }
                 false
             }

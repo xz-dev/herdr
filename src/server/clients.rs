@@ -73,6 +73,22 @@ pub(crate) struct ClientShellTopology {
     pub(crate) tab_workspace_ids: HashMap<String, String>,
 }
 
+/// Connection-local terminal-bell acknowledgement state.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClientTerminalBellsAck {
+    /// Cumulative dispatch frontier reached while this connection selected
+    /// each tab, including the latest counter at committed entry into it.
+    /// Absent means zero.
+    pub(crate) focused_through_by_tab: std::collections::BTreeMap<String, u64>,
+    /// Last companion revision published to this connection.
+    pub(crate) revision: u64,
+    /// Last full companion facts published, used to skip unchanged publications.
+    pub(crate) published: Option<crate::protocol::endpoint::EndpointTerminalBells>,
+    /// Whether facts changed since the last successful publication. Kept as a
+    /// narrow dirty boundary so unchanged renders never rebuild projections.
+    pub(crate) dirty: bool,
+}
+
 impl ClientShellLocation {
     pub(crate) fn from_snapshot(snapshot: &crate::protocol::ClientShellSnapshot) -> Self {
         Self {
@@ -182,6 +198,9 @@ pub(crate) struct ClientConnection {
     pub(crate) shell_agent_view: Option<crate::api::schema::AgentViewSetParams>,
     /// Monotonic shell replacement revision for this connection.
     pub(crate) shell_projection_revision: u64,
+    /// Cumulative terminal-bell dispatch frontier this connection has committed
+    /// focus through, per stable tab id. None until the first companion seed.
+    pub(crate) terminal_bells: Option<ClientTerminalBellsAck>,
     /// Whether this shell is waiting for one ordered endpoint command response.
     pub(crate) shell_endpoint_command_in_flight: bool,
     /// Surface projection epoch that owned the in-flight command. Deferred navigation may run
@@ -250,6 +269,7 @@ impl ClientConnection {
             shell_agent_completions: None,
             shell_agent_view: None,
             shell_projection_revision: 0,
+            terminal_bells: None,
             shell_endpoint_command_in_flight: false,
             shell_endpoint_command_surface_revision: None,
             shell_deferred_navigation_request_id: None,

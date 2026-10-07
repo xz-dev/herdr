@@ -54,6 +54,11 @@ impl ClientShellState {
                 && self.endpoint_status(&self.active_endpoint_id)
                     == Some(ClientEndpointStatus::Online)
         });
+        let tab_bell_marker = self
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
+            .map(|endpoint| &endpoint.terminal_bells);
         let mut render_state = render::ShellRenderState {
             machine_diagnostics: &self.machine_diagnostics,
             endpoints: &self.endpoints,
@@ -66,6 +71,7 @@ impl ClientShellState {
             tab_scroll: &mut self.tab_scroll,
             reveal_focused_workspace: &mut self.reveal_focused_workspace,
             reveal_focused_tab: &mut self.reveal_focused_tab,
+            tab_bell_marker,
             sidebar_collapsed: false,
             sidebar_section_split: self.sidebar_section_split,
             tab_drag_insert_index: None,
@@ -204,6 +210,11 @@ impl ClientShellState {
             ),
             _ => (None, None),
         };
+        let tab_bell_marker = self
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
+            .map(|endpoint| &endpoint.terminal_bells);
         let mut buffer = Buffer::empty(Rect::new(0, 0, cols, rows));
         self.hits = render::render_shell(
             &mut buffer,
@@ -222,6 +233,7 @@ impl ClientShellState {
                 tab_scroll: &mut self.tab_scroll,
                 reveal_focused_workspace: &mut self.reveal_focused_workspace,
                 reveal_focused_tab: &mut self.reveal_focused_tab,
+                tab_bell_marker,
                 sidebar_collapsed: self.sidebar_collapsed,
                 sidebar_section_split: self.sidebar_section_split,
                 tab_drag_insert_index,

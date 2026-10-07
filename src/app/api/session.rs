@@ -72,6 +72,7 @@ impl App {
             panes,
             layouts,
             agents: self.collect_agent_infos(),
+            terminal_bells: self.state.terminal_bells.clone(),
         }
     }
 }
