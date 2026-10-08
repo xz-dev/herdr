@@ -42,6 +42,7 @@ pub(super) fn render_lifecycle_banner(
     let rect = Rect::new(area.right().saturating_sub(width), y, width, 1);
     Clear.render(rect, buffer);
     buffer.set_style(rect, Style::default().bg(palette.surface0));
+    crate::ui::normalize_exposed_tail_cells(buffer, rect);
     super::render::put_text(
         buffer,
         rect.x.saturating_add(1),

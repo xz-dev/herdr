@@ -577,6 +577,7 @@ impl ClientShellState {
                     geometry.outer,
                     &mut composed,
                 );
+                crate::ui::normalize_exposed_tail_cells(&mut composed, geometry.outer);
                 ratatui::widgets::Widget::render(block, geometry.outer, &mut composed);
                 crate::protocol::render_ansi::blank_wide_cells_left_of(
                     &mut composed,

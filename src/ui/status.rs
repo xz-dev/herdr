@@ -61,6 +61,7 @@ pub(crate) fn render_copy_feedback_buffer(
     }
 
     Clear.render(feedback_area, buffer);
+    super::widgets::normalize_exposed_tail_cells(buffer, feedback_area);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(palette.green))
