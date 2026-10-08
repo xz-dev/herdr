@@ -234,6 +234,7 @@ fn panel(
             b[(x, y)].set_symbol(" ").set_style(background);
         }
     }
+    crate::ui::normalize_exposed_tail_cells(b, a);
     for x in a.x..a.right() {
         b[(x, a.y)]
             .set_symbol(if x == a.x {

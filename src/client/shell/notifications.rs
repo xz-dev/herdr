@@ -28,6 +28,7 @@ pub(super) fn render_mobile_notice_banner(
     let background = palette.surface0;
     Clear.render(rect, buffer);
     buffer.set_style(rect, Style::default().bg(background));
+    crate::ui::normalize_exposed_tail_cells(buffer, rect);
     let mut x = rect.x;
     for (text, style) in [
         (" ", Style::default().bg(background)),
@@ -142,6 +143,7 @@ pub(super) fn render_notification_card(
     .clamp(area.y, max_y);
     let rect = Rect::new(x, y, width, height);
     Clear.render(rect, buffer);
+    crate::ui::normalize_exposed_tail_cells(buffer, rect);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(palette.overlay0))

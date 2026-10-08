@@ -1,4 +1,5 @@
 use ratatui::{
+    buffer::Buffer,
     layout::{Constraint, Layout, Rect},
     style::Color,
 };
@@ -106,4 +107,27 @@ pub(crate) fn continue_button_rect(area: Rect) -> Rect {
         action_button_width(Some("↵"), "continue"),
         1,
     )
+}
+
+/// Repaint empty wide-glyph tail cells immediately right of an opaque rect.
+///
+/// Native Ghostty reserves an empty symbol for a wide glyph's spacer tail. When
+/// an opaque overlay removes the head inside its edge, the exposed tail emits no
+/// character and keeps the overlay background. Normalizing the tail to a plain
+/// space lets the ordinary ANSI encoder repaint it with the pane background.
+/// The cell's style is preserved; empty rects and non-exposed edges are no-ops.
+/// The caller must have already painted `rect` opaquely.
+pub(crate) fn normalize_exposed_tail_cells(buffer: &mut Buffer, rect: Rect) {
+    if rect.is_empty() {
+        return;
+    }
+    let x = rect.right();
+    for y in rect.y..rect.bottom() {
+        if let Some(cell) = buffer
+            .cell_mut((x, y))
+            .filter(|cell| cell.symbol().is_empty())
+        {
+            cell.set_symbol(" ");
+        }
+    }
 }

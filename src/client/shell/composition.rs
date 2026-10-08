@@ -577,6 +577,7 @@ impl ClientShellState {
                     geometry.outer,
                     &mut composed,
                 );
+                crate::ui::normalize_exposed_tail_cells(&mut composed, geometry.outer);
                 ratatui::widgets::Widget::render(block, geometry.outer, &mut composed);
                 frame.replace_from_ratatui_buffer_preserving_effects(&composed, None);
                 blit_pane_surface(&mut frame, &popup.frame, geometry.inner);
